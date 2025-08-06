@@ -1,0 +1,4 @@
+runpod
+easynmt
+fasttext
+nltk
