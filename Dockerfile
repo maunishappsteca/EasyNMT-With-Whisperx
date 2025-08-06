@@ -1,10 +1,14 @@
 FROM python:3.10-slim
 
-# Install system packages
-RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
-
 # Set working directory
 WORKDIR /app
+
+# Install system dependencies required for fasttext and nltk
+RUN apt-get update && apt-get install -y \
+    g++ \
+    build-essential \
+    wget \
+ && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install dependencies
 COPY requirements.txt .

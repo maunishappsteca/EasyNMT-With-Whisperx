@@ -38,10 +38,11 @@ def handler(job):
             ]
 
             # Translate each sentence individually using detected source_lang
-            translations = []
-            for sent, src_lang in zip(sentences, detected_languages):
-                translated = model.translate(sent, source_lang=src_lang, target_lang=target_lang)
-                translations.append(translated)
+            translations = model.translate(
+                sentences, 
+                source_lang=detected_languages,  # Pass list of source langs
+                target_lang=target_lang
+            )
 
             return {
                 "source_languages": detected_languages,
