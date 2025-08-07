@@ -5,12 +5,25 @@ import nltk
 import os
 import logging
 import sys
+import signal  # Import signal module for shutdown handling
+
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 print("🔄 Starting server...")  # stdout for RunPod logs
+
+# Graceful shutdown handler
+def handle_shutdown(signum, frame):
+    logger.info("🚨 Received shutdown signal, exiting...")
+    sys.exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGINT, handle_shutdown)
+signal.signal(signal.SIGTERM, handle_shutdown)
+
 
 # Download nltk tokenizer
 try:

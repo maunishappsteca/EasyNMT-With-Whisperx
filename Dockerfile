@@ -34,4 +34,4 @@ RUN python -c "import nltk; nltk.download('punkt')"
 RUN python -c "from easynmt import EasyNMT; EasyNMT('opus-mt')"
 
 # RunPod requires ENTRYPOINT to be set to runpod
-ENTRYPOINT ["python", "-m", "runpod"]
+ENTRYPOINT ["python", "app.py"]
