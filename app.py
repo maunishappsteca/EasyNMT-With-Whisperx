@@ -82,9 +82,13 @@ def handler(job):
             return {"error": "No 'target_lang' provided in input"}
 
         if source_lang == "-":
+            # Convert to list if it's a numpy array
+            if hasattr(sentences, 'tolist'):  # Check if it's a numpy array
+                sentences = sentences.tolist()
+                
             detected_languages = []
             for sentence in sentences:
-                pred = lang_detect_model.predict(sentence)
+                pred = lang_detect_model.predict(str(sentence))  # Ensure string input
                 lang_code = pred[0][0].replace("__label__", "")
                 detected_languages.append(lang_code)
 
