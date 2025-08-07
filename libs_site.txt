@@ -1,0 +1,21 @@
+numpy => https://github.com/numpy/numpy?tab=License-1-ov-file (use for array and other general code)(free to use)
+soundfile => https://github.com/bastibe/python-soundfile (use for audio red and write)(BSD - free to use)
+scipy => https://github.com/scipy/scipy (use for signal and image processing)(BSD - free to use)
+tqdm => https://github.com/tqdm/tqdm (use for progress bars)(MIT - free to use)
+librosa => https://github.com/librosa/librosa (use for sound process) (ISC - free to use)
+demucs => https://github.com/facebookresearch/demucs (new:- https://github.com/adefossez/demucs) (use for music source separation model Nolonger mantain) (MIT - free to use)
+onnxruntime-gpu => https://github.com/microsoft/onnxruntime (machine-learning accelerator)(MIT - free to use)
+torch>=1.13.0 => https://github.com/pytorch/pytorch (new Ver 2.8.0)(Facebook Inc Copyright)
+pyyaml => https://github.com/yaml/pyyaml (YAML processing framework) (MIT - free to use)
+ml_collections => https://github.com/google/ml_collections (programatically use) (Apache-2.0 license :- open source)
+pytorch_lightning => https://github.com/Lightning-AI/pytorch-lightning (deep learning framework) (Apache-2.0 license)
+samplerate==0.1.0 => https://github.com/tuxu/python-samplerate (high-quality sample rate conversion.) (MIT - free to use)
+segmentation_models_pytorch==0.3.3 https://github.com/qubvel-org/segmentation_models.pytorch (use for Image Semantic
+Segmentation) (MIT - free to use)
+moviepy => https://github.com/Zulko/moviepy (library for video editing:) (MIT - free to use)
+static-ffmpeg => https://github.com/wader/static-ffmpeg ( audio video process) (MIT - free to use)
+pydub => https://github.com/jiaaro/pydub (audio process) (MIT - free to use)
+
+
+DTTNet-Pytorch => https://github.com/junyuchen-cjy/DTTNet-Pytorch (Music Source Separation) (Apache-2.0 license)
+MVSEP-MDX23-Colab_v2 => https://github.com/Gugumachado/MVSEP-MDX23-Colab_v2 (Music Source Separation)
