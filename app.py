@@ -7,6 +7,9 @@ import logging
 import sys
 import signal  # Import signal module for shutdown handling
 
+import numpy as np
+np.fastCopy = False  # Workaround for NumPy 2.0 compatibility
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -81,20 +84,30 @@ def handler(job):
         if not target_lang:
             return {"error": "No 'target_lang' provided in input"}
 
+        # Ensure sentences is a list of strings
+        if isinstance(sentences, str):
+            sentences = [sentences]
+        sentences = [str(s) for s in sentences]
+
         if source_lang == "-":
-            # Convert to list if it's a numpy array
-            if hasattr(sentences, 'tolist'):  # Check if it's a numpy array
-                sentences = sentences.tolist()
-                
             detected_languages = []
             for sentence in sentences:
-                pred = lang_detect_model.predict(str(sentence))  # Ensure string input
-                lang_code = pred[0][0].replace("__label__", "")
-                detected_languages.append(lang_code)
+                try:
+                    # Explicit conversion to plain Python string
+                    sentence_str = str(sentence)
+                    pred = lang_detect_model.predict(sentence_str)
+                    lang_code = pred[0][0].replace("__label__", "")
+                    detected_languages.append(lang_code)
+                except Exception as e:
+                    logger.error(f"Language detection failed for: {sentence[:50]}... Error: {str(e)}")
+                    detected_languages.append("en")  # Fallback to English
+
+            # Convert to numpy array explicitly to avoid internal conversion issues
+            detected_languages_np = np.array(detected_languages, dtype=object)
 
             translations = model.translate(
                 sentences,
-                source_lang=detected_languages,
+                source_lang=detected_languages_np,
                 target_lang=target_lang,
                 batch_size=8
             )
