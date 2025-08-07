@@ -26,8 +26,11 @@ RUN pip install --upgrade pip && \
 # Use python3.10 as default python
 RUN ln -sf /usr/bin/python3.10 /usr/bin/python && ln -sf /usr/bin/pip3 /usr/bin/pip
 
-# Download FastText language ID model
-RUN wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin -O /app/lid.176.ftz
+# Download FastText language ID model (use .bin version)
+RUN wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin -O /app/lid.176.bin && \
+    # Convert to .ftz format if needed (some versions work better with .bin)
+    ln -s /app/lid.176.bin /app/lid.176.ftz
+
 
 # Pre-download nltk 'punkt' data
 # RUN python -c "import nltk; nltk.download('punkt')"
