@@ -28,7 +28,11 @@ RUN ln -sf /usr/bin/python3.10 /usr/bin/python && ln -sf /usr/bin/pip3 /usr/bin/
 RUN wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin -O /app/lid.176.ftz
 
 # Pre-download nltk 'punkt' data
-RUN python -c "import nltk; nltk.download('punkt')"
+# RUN python -c "import nltk; nltk.download('punkt')"
+# Download ALL required NLTK data to a persistent location
+RUN mkdir -p /usr/share/nltk_data && \
+    python -c "import nltk; nltk.download('punkt', download_dir='/usr/share/nltk_data'); nltk.download('punkt_tab', download_dir='/usr/share/nltk_data')" && \
+    python -c "import nltk; nltk.data.path.append('/usr/share/nltk_data')"
 
 # Preload EasyNMT model to cache it (optional, saves cold-start delay)
 RUN python -c "from easynmt import EasyNMT; EasyNMT('opus-mt')"

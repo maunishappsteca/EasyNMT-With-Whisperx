@@ -7,8 +7,6 @@ import logging
 import sys
 import signal  # Import signal module for shutdown handling
 
-
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,14 +22,21 @@ def handle_shutdown(signum, frame):
 signal.signal(signal.SIGINT, handle_shutdown)
 signal.signal(signal.SIGTERM, handle_shutdown)
 
-
 # Download nltk tokenizer
 try:
-    nltk.download('punkt', quiet=True)
-    logger.info("✅ NLTK 'punkt' tokenizer downloaded")
+    # Configure NLTK data path
+    nltk.data.path.append('/usr/share/nltk_data')
+    # Verify punkt is available, download if not
+    try:
+        nltk.data.find('tokenizers/punkt')
+    except LookupError:
+        nltk.download('punkt', download_dir='/usr/share/nltk_data')
+    logger.info("✅ NLTK 'punkt' tokenizer ready")
 except Exception as e:
-    logger.error(f"❌ NLTK download failed: {str(e)}")
+    logger.error(f"❌ NLTK setup failed: {str(e)}")
     sys.exit(1)
+
+
 
 # Load FastText language ID model
 FASTTEXT_MODEL_PATH = "lid.176.ftz"
