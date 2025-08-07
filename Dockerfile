@@ -19,7 +19,7 @@ COPY requirements.txt .
 COPY app.py .
 
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir numpy<2.0.0 && \
+    pip install --no-cache-dir numpy>=1.19.0 && \
     pip install --no-cache-dir -r requirements.txt
 
 
