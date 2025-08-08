@@ -22,6 +22,7 @@ BATCH_SIZE = 16
 S3_BUCKET = os.environ.get("S3_BUCKET_NAME")
 MODEL_CACHE_DIR = os.getenv("WHISPER_MODEL_CACHE", "/app/models")
 TRANSLATION_MODEL_DIR = "/app/translation_models"
+WORD_TRANSLATION_ENABLED = True  # Control word-level translations
 
 # Configure numpy compatibility
 np.fastCopy = False  # Workaround for NumPy 2.0 compatibility
@@ -77,7 +78,7 @@ try:
     translation_model = EasyNMT(
         'opus-mt',
         lang_detect_model=lang_detect_model,
-        device='cpu',
+        device='cuda' if torch.cuda.is_available() else 'cpu',
         load_only=['opus-mt'],
         cache_folder=TRANSLATION_MODEL_DIR
     )
@@ -184,16 +185,36 @@ def translate_text(text: str, target_lang: str, source_lang: str = None):
         logger.error(f"Translation failed: {str(e)}")
         return None
 
+def translate_words(words: list, target_lang: str, source_lang: str):
+    """Translate individual words with context awareness"""
+    if not words or not WORD_TRANSLATION_ENABLED:
+        return None
+    
+    try:
+        # Extract word texts
+        word_texts = [w["word"] for w in words]
+        
+        # Get translations in batch
+        translations = translation_model.translate(
+            word_texts,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            batch_size=32  # Larger batch for words
+        )
+        
+        return translations
+    except Exception as e:
+        logger.warning(f"Word translation failed, continuing without word-level translations: {str(e)}")
+        return None
+
 def translate_segments(segments: list, target_lang: str, source_lang: str):
-    """Translate segments using EasyNMT in batches"""
+    """Translate segments and words with proper error handling"""
     if not segments or target_lang == "-" or target_lang == source_lang:
         return format_segments(segments)
     
     try:
-        # Extract segment texts for batch translation
+        # First translate all segment texts
         segment_texts = [seg["text"] for seg in segments]
-        
-        # Perform batch translation
         translated_texts = translation_model.translate(
             segment_texts,
             source_lang=source_lang,
@@ -201,24 +222,28 @@ def translate_segments(segments: list, target_lang: str, source_lang: str):
             batch_size=8
         )
         
-        # Create translated segments structure
         translated_segments = []
         for i, seg in enumerate(segments):
-            new_seg = {
+            # Handle word translations if enabled and words exist
+            word_translations = None
+            if WORD_TRANSLATION_ENABLED and "words" in seg:
+                word_translations = translate_words(seg["words"], target_lang, source_lang)
+            
+            # Build words array
+            words = []
+            if "words" in seg:
+                for j, word in enumerate(seg["words"]):
+                    trans = word_translations[j] if word_translations and j < len(word_translations) else None
+                    words.append({
+                        **word,
+                        "word_translation": trans
+                    })
+            
+            translated_segments.append({
                 **seg,
                 "text_translation": translated_texts[i],
-                "words": []
-            }
-            
-            # Preserve word-level info if available
-            if "words" in seg:
-                for word in seg["words"]:
-                    new_seg["words"].append({
-                        **word,
-                        "word_translation": None  # Word-level translation not implemented
-                    })
-                    
-            translated_segments.append(new_seg)
+                "words": words if words else seg.get("words", [])
+            })
         
         return translated_segments
     except Exception as e:
@@ -226,7 +251,7 @@ def translate_segments(segments: list, target_lang: str, source_lang: str):
         return format_segments(segments)
 
 def format_segments(segments: list):
-    """Adds empty translation fields to segments"""
+    """Ensure consistent segment structure"""
     if not segments:
         return segments
 
@@ -237,22 +262,19 @@ def format_segments(segments: list):
             for word in segment["words"]:
                 words.append({
                     **word,
-                    "word_translation": None
+                    "word_translation": word.get("word_translation")  # Preserve existing if present
                 })
                 
         formatted_segments.append({
             **segment,
-            "text_translation": None,
+            "text_translation": segment.get("text_translation"),
             "words": words
         })
 
     return formatted_segments
 
-
-
-
 def transcribe_audio(audio_path: str, model_size: str, language: Optional[str], align: bool, translate_to: Optional[str]):
-    """Core transcription logic with optional translation"""
+    """Core transcription logic with robust error handling"""
     try:
         model = load_model(model_size, language)
         result = model.transcribe(audio_path, batch_size=BATCH_SIZE)
@@ -273,17 +295,21 @@ def transcribe_audio(audio_path: str, model_size: str, language: Optional[str], 
                 logger.error(f"Alignment skipped: {str(e)}")
                 result["alignment_error"] = str(e)
         
-        # Translate if requested
+        # Handle translation if requested
         translated_text = None
         translated_segments = None
         
         if translate_to and translate_to != "-":
-            full_text = " ".join(seg["text"] for seg in result["segments"])
-            translation_result = translate_text(full_text, translate_to, detected_language)
-            if translation_result:
-                translated_text = translation_result["text"]
-            
-            translated_segments = translate_segments(result["segments"], translate_to, detected_language)
+            try:
+                full_text = " ".join(seg["text"] for seg in result["segments"])
+                translation_result = translate_text(full_text, translate_to, detected_language)
+                if translation_result:
+                    translated_text = translation_result["text"]
+                
+                translated_segments = translate_segments(result["segments"], translate_to, detected_language)
+            except Exception as e:
+                logger.error(f"Translation failed, returning untranslated text: {str(e)}")
+                translated_segments = format_segments(result["segments"])
         else:
             translated_segments = format_segments(result["segments"])
 
@@ -293,14 +319,15 @@ def transcribe_audio(audio_path: str, model_size: str, language: Optional[str], 
             "segments": translated_segments if translated_segments else result["segments"],
             "language": detected_language,
             "model": model_size,
-            "alignment_success": "alignment_error" not in result
+            "alignment_success": "alignment_error" not in result,
+            "word_translations_included": WORD_TRANSLATION_ENABLED and translate_to and translate_to != "-"
         }
     except Exception as e:
         logger.error(f"Transcription failed: {str(e)}")
         raise RuntimeError(f"Transcription failed: {str(e)}")
 
 def handler(job):
-    """RunPod serverless handler"""
+    """RunPod serverless handler with comprehensive error handling"""
     try:
         if not job.get("input"):
             return {"error": "No input provided"}
@@ -314,7 +341,10 @@ def handler(job):
         # 1. Download from S3
         local_path = f"/tmp/{uuid.uuid4()}_{os.path.basename(file_name)}"
         try:
-            s3.download_file(S3_BUCKET, file_name, local_path)
+            if S3_BUCKET:
+                s3.download_file(S3_BUCKET, file_name, local_path)
+            else:
+                return {"error": "S3 bucket not configured"}
         except Exception as e:
             return {"error": f"S3 download failed: {str(e)}"}
         
@@ -326,6 +356,8 @@ def handler(job):
             else:
                 audio_path = local_path
         except Exception as e:
+            if os.path.exists(local_path):
+                os.remove(local_path)
             return {"error": f"Audio processing failed: {str(e)}"}
         
         # 3. Transcribe
@@ -341,9 +373,12 @@ def handler(job):
             return {"error": str(e)}
         finally:
             # 4. Cleanup
-            if os.path.exists(audio_path):
-                os.remove(audio_path)
-            gc.collect()
+            try:
+                if os.path.exists(audio_path):
+                    os.remove(audio_path)
+                gc.collect()
+            except Exception as e:
+                logger.warning(f"Cleanup failed: {str(e)}")
         
         return result
         
@@ -351,7 +386,7 @@ def handler(job):
         return {"error": f"Unexpected error: {str(e)}"}
 
 if __name__ == "__main__":
-    print("Starting WhisperX cuda Endpoint with EasyNMT Translation...")
+    print("Starting WhisperX cuda Endpoint with Enhanced EasyNMT Translation...")
     
     # Verify model cache directory at startup
     if not ensure_model_cache_dir():
@@ -369,7 +404,8 @@ if __name__ == "__main__":
                 "model_size": "base",
                 "language": "hi",
                 "translateTo": "en",
-                "align": True
+                "align": True,
+                "word_level_translation": True
             }
         })
         print("Test Result:", json.dumps(test_result, indent=2))
