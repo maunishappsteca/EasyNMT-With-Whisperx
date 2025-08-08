@@ -6,14 +6,11 @@ import runpod
 import boto3
 import gc
 import json
-import nltk
 import logging
 import sys
-import fasttext
-import numpy as np
+import torch
 from typing import Optional
 from botocore.exceptions import ClientError
-from datetime import datetime
 from easynmt import EasyNMT
 
 # --- Configuration ---
@@ -22,10 +19,6 @@ BATCH_SIZE = 16
 S3_BUCKET = os.environ.get("S3_BUCKET_NAME")
 MODEL_CACHE_DIR = os.getenv("WHISPER_MODEL_CACHE", "/app/models")
 TRANSLATION_MODEL_DIR = "/app/translation_models"
-WORD_TRANSLATION_ENABLED = True  # Control word-level translations
-
-# Configure numpy compatibility
-np.fastCopy = False  # Workaround for NumPy 2.0 compatibility
 
 # Configure logging
 def setup_logging():
@@ -43,42 +36,12 @@ logger = setup_logging()
 # Initialize S3 client
 s3 = boto3.client('s3') if S3_BUCKET else None
 
-# --- Translation Model Setup ---
-# Configure NLTK data path
-try:
-    nltk.data.path.append('/usr/share/nltk_data')
-    try:
-        nltk.data.find('tokenizers/punkt')
-    except LookupError:
-        nltk.download('punkt', download_dir='/usr/share/nltk_data')
-    logger.info("✅ NLTK 'punkt' tokenizer ready")
-except Exception as e:
-    logger.error(f"❌ NLTK setup failed: {str(e)}")
-    sys.exit(1)
-
-# Load FastText language ID model
-FASTTEXT_MODEL_PATH = "lid.176.bin"
-if not os.path.exists(FASTTEXT_MODEL_PATH):
-    logger.error(f"❌ FastText model not found at {FASTTEXT_MODEL_PATH}")
-    sys.exit(1)
-
-try:
-    # Silence FastText warnings
-    fasttext.FastText.eprint = lambda x: None
-    logger.info("⏳ Loading FastText model...")
-    lang_detect_model = fasttext.load_model(FASTTEXT_MODEL_PATH)
-    logger.info("✅ FastText model loaded successfully")
-except Exception as e:
-    logger.error(f"❌ FastText load failed: {str(e)}")
-    sys.exit(1)
-
 # Load translation model
 try:
     logger.info("⏳ Loading EasyNMT model...")
     translation_model = EasyNMT(
         'opus-mt',
-        lang_detect_model=lang_detect_model,
-        device='cuda' if torch.cuda.is_available() else 'cpu',
+        device='cuda',
         load_only=['opus-mt'],
         cache_folder=TRANSLATION_MODEL_DIR
     )
@@ -164,30 +127,20 @@ def load_alignment_model(language_code: str):
             logger.error(f"No alignment model available for language: {language_code}")
             raise RuntimeError(f"No alignment model available for language: {language_code}")
 
-def translate_text(text: str, target_lang: str, source_lang: str = None):
+def translate_text(text: str, target_lang: str, source_lang: str):
     """Translate text using EasyNMT"""
     if not text or target_lang == "-":
         return None
     
     try:
-        # Handle auto-detection if source language is not provided
-        if source_lang in (None, "-", "auto"):
-            translation = translation_model.translate(text, target_lang=target_lang)
-        else:
-            translation = translation_model.translate(text, 
-                                                     source_lang=source_lang, 
-                                                     target_lang=target_lang)
-        return {
-            "text": translation,
-            "src_lang": source_lang
-        }
+        return translation_model.translate(text, source_lang=source_lang, target_lang=target_lang)
     except Exception as e:
         logger.error(f"Translation failed: {str(e)}")
         return None
 
 def translate_words(words: list, target_lang: str, source_lang: str):
-    """Translate individual words with context awareness"""
-    if not words or not WORD_TRANSLATION_ENABLED:
+    """Translate individual words with proper batching"""
+    if not words:
         return None
     
     try:
@@ -204,7 +157,7 @@ def translate_words(words: list, target_lang: str, source_lang: str):
         
         return translations
     except Exception as e:
-        logger.warning(f"Word translation failed, continuing without word-level translations: {str(e)}")
+        logger.error(f"Word translation failed: {str(e)}")
         return None
 
 def translate_segments(segments: list, target_lang: str, source_lang: str):
@@ -224,9 +177,9 @@ def translate_segments(segments: list, target_lang: str, source_lang: str):
         
         translated_segments = []
         for i, seg in enumerate(segments):
-            # Handle word translations if enabled and words exist
+            # Translate words if available
             word_translations = None
-            if WORD_TRANSLATION_ENABLED and "words" in seg:
+            if "words" in seg and seg["words"]:
                 word_translations = translate_words(seg["words"], target_lang, source_lang)
             
             # Build words array
@@ -262,12 +215,12 @@ def format_segments(segments: list):
             for word in segment["words"]:
                 words.append({
                     **word,
-                    "word_translation": word.get("word_translation")  # Preserve existing if present
+                    "word_translation": None
                 })
                 
         formatted_segments.append({
             **segment,
-            "text_translation": segment.get("text_translation"),
+            "text_translation": None,
             "words": words
         })
 
@@ -302,10 +255,7 @@ def transcribe_audio(audio_path: str, model_size: str, language: Optional[str], 
         if translate_to and translate_to != "-":
             try:
                 full_text = " ".join(seg["text"] for seg in result["segments"])
-                translation_result = translate_text(full_text, translate_to, detected_language)
-                if translation_result:
-                    translated_text = translation_result["text"]
-                
+                translated_text = translate_text(full_text, translate_to, detected_language)
                 translated_segments = translate_segments(result["segments"], translate_to, detected_language)
             except Exception as e:
                 logger.error(f"Translation failed, returning untranslated text: {str(e)}")
@@ -316,11 +266,11 @@ def transcribe_audio(audio_path: str, model_size: str, language: Optional[str], 
         return {
             "text": " ".join(seg["text"] for seg in result["segments"]),
             "translation": translated_text,
-            "segments": translated_segments if translated_segments else result["segments"],
+            "segments": translated_segments,
             "language": detected_language,
             "model": model_size,
             "alignment_success": "alignment_error" not in result,
-            "word_translations_included": WORD_TRANSLATION_ENABLED and translate_to and translate_to != "-"
+            "word_translations_included": translate_to and translate_to != "-" and "words" in result["segments"][0]
         }
     except Exception as e:
         logger.error(f"Transcription failed: {str(e)}")
@@ -386,7 +336,7 @@ def handler(job):
         return {"error": f"Unexpected error: {str(e)}"}
 
 if __name__ == "__main__":
-    print("Starting WhisperX cuda Endpoint with Enhanced EasyNMT Translation...")
+    print("Starting WhisperX cuda Endpoint with Full Translation...")
     
     # Verify model cache directory at startup
     if not ensure_model_cache_dir():
@@ -404,8 +354,7 @@ if __name__ == "__main__":
                 "model_size": "base",
                 "language": "hi",
                 "translateTo": "en",
-                "align": True,
-                "word_level_translation": True
+                "align": True
             }
         })
         print("Test Result:", json.dumps(test_result, indent=2))
