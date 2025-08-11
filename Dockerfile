@@ -53,7 +53,7 @@ snapshot_download(repo_id=f'openai/whisper-{model_size}', \
 # Download FastText language ID model (use .bin version)
 # RUN wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin -O /app/lid.176.bin && \
     # Convert to .ftz format if needed (some versions work better with .bin)
-    ln -s /app/lid.176.bin /app/lid.176.ftz
+    # ln -s /app/lid.176.bin /app/lid.176.ftz
 
 
 # Pre-download nltk 'punkt' data
