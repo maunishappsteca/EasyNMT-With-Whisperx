@@ -249,7 +249,7 @@ def transcribe_audio(audio_path: str, model_size: str, language: Optional[str], 
     try:
         model = load_model(model_size, language)
         result = model.transcribe(audio_path, batch_size=BATCH_SIZE)
-        detected_language = result.get("language", language if language else None)
+        detected_language = result.get("language", language if language else "en")
         
         if align and detected_language and detected_language != "unknown":
             try:
