@@ -273,23 +273,23 @@ def transcribe_audio(audio_path: str, model_size: str, language: Optional[str], 
         
         if translate_to and translate_to != "-":
             try:
-                full_text = " ".join(seg["text"] for seg in result.get("segments", []))
+                full_text = " ".join(seg["text"] for seg in result["segments"])
                 translated_text = translate_text(full_text, translate_to, detected_language)
-                translated_segments = translate_segments(result.get("segments", []), translate_to, detected_language)
+                translated_segments = translate_segments(result["segments"], translate_to, detected_language)
             except Exception as e:
                 logger.error(f"Translation failed, returning untranslated text: {str(e)}")
-                translated_segments = format_segments(result.get("segments", []))
+                translated_segments = format_segments(result["segments"])
         else:
-            translated_segments = format_segments(result.get("segments", []))
+            translated_segments = format_segments(result["segments"])
 
         # Build safe word translation included flag
         word_translations_included = False
-        if translate_to and translate_to != "-" and result.get("segments"):
+        if translate_to and translate_to != "-" and result["segments"]:
             first_seg = result["segments"][0]
             word_translations_included = "words" in first_seg and bool(first_seg["words"])
 
         return {
-            "text": " ".join(seg["text"] for seg in result.get("segments", [])),
+            "text": " ".join(seg["text"] for seg in result["segments"]),
             "translation": translated_text,
             "segments": translated_segments,
             "language": detected_language,
