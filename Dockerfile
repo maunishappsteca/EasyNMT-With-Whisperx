@@ -63,6 +63,10 @@ snapshot_download(repo_id=f'openai/whisper-{model_size}', \
      # python -c "import nltk; nltk.download('punkt', download_dir='/usr/share/nltk_data'); nltk.download('punkt_tab', download_dir='/usr/share/nltk_data')" && \
      # python -c "import nltk; nltk.data.path.append('/usr/share/nltk_data')"
 
+ RUN mkdir -p /usr/share/nltk_data && \
+    wget https://vividup.tech/app_models/nltk_data.tar.gz -O /tmp/nltk_data.tar.gz && \
+    tar -xzvf /tmp/nltk_data.tar.gz -C /usr/share
+
 # Preload EasyNMT model to cache it (optional, saves cold-start delay)
 RUN python -c "from easynmt import EasyNMT; EasyNMT('opus-mt')"
 
