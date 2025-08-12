@@ -145,18 +145,24 @@ def load_alignment_model(language_code: str):
 
 def translate_text(text: str, target_lang: str, source_lang: str):
     """Translate text using EasyNMT"""
+    logger.info(f"translate_text start")
     if not text or target_lang == "-":
+        logger.info(f"translate_text return none")
         return None
     
     try:
+        logger.info(f"translate_text end")
         return translation_model.translate(text, source_lang=source_lang, target_lang=target_lang)
     except Exception as e:
+        logger.info(f"translate_text error end")
         logger.error(f"Translation failed: {str(e)}")
         return None
 
 def translate_words(words: list, target_lang: str, source_lang: str):
     """Translate individual words with proper batching"""
+    logger.info(f"translate_words start")
     if not words:
+        logger.info(f"translate_words return none")
         return None
     try:
         # Extract word texts
@@ -169,15 +175,18 @@ def translate_words(words: list, target_lang: str, source_lang: str):
             target_lang=target_lang,
             batch_size=32  # Larger batch for words
         )
-        
+        logger.info(f"translate_words end")
         return translations
     except Exception as e:
+        logger.info(f"translate_words error end")
         logger.error(f"Word translation failed: {str(e)}")
         return None
 
 def translate_segments(segments: list, target_lang: str, source_lang: str):
     """Translate segments and words with proper error handling"""
+    logger.info(f"translate_segments start")
     if not segments or target_lang == "-" or target_lang == source_lang:
+        logger.info(f"translate_segments format_segments call")
         return format_segments(segments)
     
     try:
@@ -212,14 +221,16 @@ def translate_segments(segments: list, target_lang: str, source_lang: str):
                 "text_translation": translated_texts[i],
                 "words": words if words else seg.get("words", [])
             })
-        
+         logger.info(f"translate_segments end")
         return translated_segments
     except Exception as e:
+        logger.info(f"translate_segments error end")
         logger.error(f"Segment translation failed: {str(e)}")
         return format_segments(segments)
 
 def format_segments(segments: list):
     """Ensure consistent segment structure"""
+    logger.info(f"format_segments start")
     if not segments:
         return segments
 
@@ -240,13 +251,14 @@ def format_segments(segments: list):
             #  "text_translation": None,
             "words": words
         })
-
+    logger.info(f"format_segments end")
     return formatted_segments
 
 def transcribe_audio(audio_path: str, model_size: str, language: Optional[str], align: bool, translate_to: Optional[str]):
     """Core transcription logic with robust error handling"""
     model = None
     align_model = None
+    logger.info(f"transcribe_audio start")
     try:
         model = load_model(model_size, language)
         result = model.transcribe(audio_path, batch_size=BATCH_SIZE)
@@ -281,15 +293,17 @@ def transcribe_audio(audio_path: str, model_size: str, language: Optional[str], 
                 translated_segments = translate_segments(result["segments"], translate_to, detected_language)
                 isTranslate ="YES"
             except Exception as e:
+                logger.info(f"transcribe_audio error in translate")
                 logger.error(f"Translation failed, returning untranslated text: {str(e)}")
                 translated_segments = format_segments(result["segments"])
                 isTranslate ="ERROR"
         else:
+            logger.info(f"transcribe_audio direct formet")
             translated_segments = format_segments(result["segments"])
             isTranslate="NO"
 
       
-
+        logger.info(f"transcribe_audio end")
         return {
             "text": " ".join(seg["text"] for seg in result["segments"]),
             "translation": translated_text,
