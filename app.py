@@ -158,7 +158,6 @@ def translate_words(words: list, target_lang: str, source_lang: str):
     """Translate individual words with proper batching"""
     if not words:
         return None
-    
     try:
         # Extract word texts
         word_texts = [w["word"] for w in words]
@@ -231,12 +230,14 @@ def format_segments(segments: list):
             for word in segment["words"]:
                 words.append({
                     **word,
-                    "word_translation": None
+                     "word_translation": "format_segments"
+                    # "word_translation": None
                 })
                 
         formatted_segments.append({
             **segment,
-            "text_translation": None,
+            "text_translation": "format_segments",
+            #  "text_translation": None,
             "words": words
         })
 
@@ -270,23 +271,24 @@ def transcribe_audio(audio_path: str, model_size: str, language: Optional[str], 
         # Handle translation if requested
         translated_text = None
         translated_segments = None
+
+        isTranslate ="NO"
         
         if translate_to and translate_to != "-":
             try:
                 full_text = " ".join(seg["text"] for seg in result["segments"])
                 translated_text = translate_text(full_text, translate_to, detected_language)
                 translated_segments = translate_segments(result["segments"], translate_to, detected_language)
+                isTranslate ="YES"
             except Exception as e:
                 logger.error(f"Translation failed, returning untranslated text: {str(e)}")
                 translated_segments = format_segments(result["segments"])
+                isTranslate ="ERROR"
         else:
             translated_segments = format_segments(result["segments"])
+            isTranslate="NO"
 
-        # Build safe word translation included flag
-        word_translations_included = False
-        if translate_to and translate_to != "-" and result["segments"]:
-            first_seg = result["segments"][0]
-            word_translations_included = "words" in first_seg and bool(first_seg["words"])
+      
 
         return {
             "text": " ".join(seg["text"] for seg in result["segments"]),
@@ -295,7 +297,8 @@ def transcribe_audio(audio_path: str, model_size: str, language: Optional[str], 
             "language": detected_language,
             "model": model_size,
             "alignment_success": "alignment_error" not in result,
-            "word_translations_included": word_translations_included
+            "isTranslate": isTranslate,
+            "translate_to": translate_to
         }
     except Exception as e:
         logger.error(f"Transcription failed: {str(e)}")
