@@ -10,6 +10,7 @@ import logging
 import sys
 import torch
 from typing import Optional
+from botocore.exceptions import ClientError
 from easynmt import EasyNMT
 
 # --- Configuration ---
@@ -51,11 +52,10 @@ except Exception as e:
 
 # --- Core Functions ---
 def ensure_model_cache_dir():
-    """Ensure model cache directory exists and is accessible.
-       Use /tmp/test.tmp for write test so we don't touch model dir files."""
+    """Ensure model cache directory exists and is accessible"""
     try:
         os.makedirs(MODEL_CACHE_DIR, exist_ok=True)
-        test_file = os.path.join("/tmp", "test.tmp")  # safer location
+        test_file = os.path.join(MODEL_CACHE_DIR, "test.tmp")
         with open(test_file, "w") as f:
             f.write("test")
         os.remove(test_file)
@@ -63,22 +63,6 @@ def ensure_model_cache_dir():
     except Exception as e:
         logger.error(f"Model cache directory error: {str(e)}")
         return False
-
-def cleanup_temp_files(*file_paths):
-    """Delete provided file paths if they exist and force a GC run."""
-    for path in file_paths:
-        try:
-            if path and os.path.exists(path):
-                os.remove(path)
-                logger.info(f"🗑 Deleted temp file: {path}")
-        except Exception as e:
-            logger.warning(f"Could not delete {path}: {e}")
-    # Attempt to clear memory / GPU caches as well
-    try:
-        torch.cuda.empty_cache()
-    except Exception:
-        pass
-    gc.collect()
 
 def convert_to_wav(input_path: str) -> str:
     """Convert media file to 16kHz mono WAV"""
@@ -103,7 +87,7 @@ def load_model(model_size: str, language: Optional[str]):
     """Load Whisper model with GPU optimization"""
     try:
         if not ensure_model_cache_dir():
-            logger.error("Model cache directory is not accessible")
+            logger.error(f"Model cache directory is not accessible")
             raise RuntimeError("Model cache directory is not accessible")
             
         return whisperx.load_model(
@@ -145,25 +129,20 @@ def load_alignment_model(language_code: str):
 
 def translate_text(text: str, target_lang: str, source_lang: str):
     """Translate text using EasyNMT"""
-    logger.info(f"translate_text start")
     if not text or target_lang == "-":
-        logger.info(f"translate_text return none")
         return None
     
     try:
-        logger.info(f"translate_text end")
         return translation_model.translate(text, source_lang=source_lang, target_lang=target_lang)
     except Exception as e:
-        logger.info(f"translate_text error end")
         logger.error(f"Translation failed: {str(e)}")
         return None
 
 def translate_words(words: list, target_lang: str, source_lang: str):
     """Translate individual words with proper batching"""
-    logger.info(f"translate_words start")
     if not words:
-        logger.info(f"translate_words return none")
         return None
+    
     try:
         # Extract word texts
         word_texts = [w["word"] for w in words]
@@ -175,18 +154,15 @@ def translate_words(words: list, target_lang: str, source_lang: str):
             target_lang=target_lang,
             batch_size=32  # Larger batch for words
         )
-        logger.info(f"translate_words end")
+        
         return translations
     except Exception as e:
-        logger.info(f"translate_words error end")
         logger.error(f"Word translation failed: {str(e)}")
         return None
 
 def translate_segments(segments: list, target_lang: str, source_lang: str):
     """Translate segments and words with proper error handling"""
-    logger.info(f"translate_segments start")
     if not segments or target_lang == "-" or target_lang == source_lang:
-        logger.info(f"translate_segments format_segments call")
         return format_segments(segments)
     
     try:
@@ -221,16 +197,14 @@ def translate_segments(segments: list, target_lang: str, source_lang: str):
                 "text_translation": translated_texts[i],
                 "words": words if words else seg.get("words", [])
             })
-         logger.info(f"translate_segments end")
+        
         return translated_segments
     except Exception as e:
-        logger.info(f"translate_segments error end")
         logger.error(f"Segment translation failed: {str(e)}")
         return format_segments(segments)
 
 def format_segments(segments: list):
     """Ensure consistent segment structure"""
-    logger.info(f"format_segments start")
     if not segments:
         return segments
 
@@ -241,30 +215,25 @@ def format_segments(segments: list):
             for word in segment["words"]:
                 words.append({
                     **word,
-                     "word_translation": "format_segments"
-                    # "word_translation": None
+                    "word_translation": None
                 })
                 
         formatted_segments.append({
             **segment,
-            "text_translation": "format_segments",
-            #  "text_translation": None,
+            "text_translation": None,
             "words": words
         })
-    logger.info(f"format_segments end")
+
     return formatted_segments
 
 def transcribe_audio(audio_path: str, model_size: str, language: Optional[str], align: bool, translate_to: Optional[str]):
     """Core transcription logic with robust error handling"""
-    model = None
-    align_model = None
-    logger.info(f"transcribe_audio start")
     try:
         model = load_model(model_size, language)
         result = model.transcribe(audio_path, batch_size=BATCH_SIZE)
         detected_language = result.get("language", language if language else "en")
         
-        if align and detected_language and detected_language != "unknown":
+        if align and detected_language != "unknown":
             try:
                 align_model, metadata = load_alignment_model(detected_language)
                 result = whisperx.align(
@@ -277,33 +246,23 @@ def transcribe_audio(audio_path: str, model_size: str, language: Optional[str], 
                 )
             except Exception as e:
                 logger.error(f"Alignment skipped: {str(e)}")
-                # preserve whatever partial result we have
                 result["alignment_error"] = str(e)
         
         # Handle translation if requested
         translated_text = None
         translated_segments = None
-
-        isTranslate ="NO"
         
         if translate_to and translate_to != "-":
             try:
                 full_text = " ".join(seg["text"] for seg in result["segments"])
                 translated_text = translate_text(full_text, translate_to, detected_language)
                 translated_segments = translate_segments(result["segments"], translate_to, detected_language)
-                isTranslate ="YES"
             except Exception as e:
-                logger.info(f"transcribe_audio error in translate")
                 logger.error(f"Translation failed, returning untranslated text: {str(e)}")
                 translated_segments = format_segments(result["segments"])
-                isTranslate ="ERROR"
         else:
-            logger.info(f"transcribe_audio direct formet")
             translated_segments = format_segments(result["segments"])
-            isTranslate="NO"
 
-      
-        logger.info(f"transcribe_audio end")
         return {
             "text": " ".join(seg["text"] for seg in result["segments"]),
             "translation": translated_text,
@@ -311,34 +270,14 @@ def transcribe_audio(audio_path: str, model_size: str, language: Optional[str], 
             "language": detected_language,
             "model": model_size,
             "alignment_success": "alignment_error" not in result,
-            "isTranslate": isTranslate,
-            "translate_to": translate_to
+            "word_translations_included": translate_to and translate_to != "-" and "words" in result["segments"][0]
         }
     except Exception as e:
         logger.error(f"Transcription failed: {str(e)}")
         raise RuntimeError(f"Transcription failed: {str(e)}")
-    finally:
-        # Free model and alignment model memory explicitly
-        try:
-            if align_model is not None:
-                del align_model
-        except Exception:
-            pass
-        try:
-            if model is not None:
-                del model
-        except Exception:
-            pass
-        try:
-            torch.cuda.empty_cache()
-        except Exception:
-            pass
-        gc.collect()
 
 def handler(job):
     """RunPod serverless handler with comprehensive error handling"""
-    local_path = None
-    audio_path = None
     try:
         if not job.get("input"):
             return {"error": "No input provided"}
@@ -355,28 +294,20 @@ def handler(job):
             if S3_BUCKET:
                 s3.download_file(S3_BUCKET, file_name, local_path)
             else:
-                cleanup_temp_files(local_path)
                 return {"error": "S3 bucket not configured"}
         except Exception as e:
-            cleanup_temp_files(local_path)
             return {"error": f"S3 download failed: {str(e)}"}
         
         # 2. Convert to WAV if needed
         try:
             if not file_name.lower().endswith('.wav'):
                 audio_path = convert_to_wav(local_path)
-                # remove original downloaded file if convert succeeded
-                try:
-                    if os.path.exists(local_path):
-                        os.remove(local_path)
-                    local_path = None
-                except Exception as e:
-                    logger.warning(f"Could not delete original downloaded file {local_path}: {e}")
+                os.remove(local_path)
             else:
                 audio_path = local_path
-                local_path = None  # audio_path owns it now
         except Exception as e:
-            cleanup_temp_files(local_path, audio_path)
+            if os.path.exists(local_path):
+                os.remove(local_path)
             return {"error": f"Audio processing failed: {str(e)}"}
         
         # 3. Transcribe
@@ -389,16 +320,23 @@ def handler(job):
                 input_data.get("translateTo", "-")
             )
         except Exception as e:
-            cleanup_temp_files(local_path, audio_path)
             return {"error": str(e)}
         finally:
-            # 4. Cleanup temp files and free memory
-            cleanup_temp_files(local_path, audio_path)
+            # 4. Cleanup
+            try:
+                if os.path.exists(audio_path):
+                    os.remove(audio_path)
+
+                if os.path.exists(local_path):
+                    os.remove(local_path)
+                    
+                gc.collect()
+            except Exception as e:
+                logger.warning(f"Cleanup failed: {str(e)}")
         
         return result
         
     except Exception as e:
-        cleanup_temp_files(local_path, audio_path)
         return {"error": f"Unexpected error: {str(e)}"}
 
 if __name__ == "__main__":
@@ -413,7 +351,7 @@ if __name__ == "__main__":
     if os.environ.get("RUNPOD_SERVERLESS_MODE") == "true":
         runpod.serverless.start({"handler": handler})
     else:
-        # Test with mock input (ensure you have a local test.wav for this to run)
+        # Test with mock input
         test_result = handler({
             "input": {
                 "file_name": "test.wav",
