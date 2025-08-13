@@ -24,6 +24,7 @@ RUN ln -sf /usr/bin/python3.10 /usr/bin/python && ln -sf /usr/bin/pip3 /usr/bin/
 ENV WHISPER_MODEL_CACHE=/app/models
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH    
 
+
 # Copy files
 COPY requirements.txt .
 COPY app.py .
@@ -34,8 +35,14 @@ RUN pip install --no-cache-dir numpy>=1.19.0
 RUN pip install --no-cache-dir torch==2.1.0+cu118 torchaudio==2.1.0+cu118 --index-url https://download.pytorch.org/whl/cu118 
 RUN pip install --no-cache-dir -r requirements.txt
 
+
+
 # Install huggingface hub for preloading Whisper model
 RUN pip install huggingface-hub
+
+# Use python3.10 as default python
+RUN ln -sf /usr/bin/python3.10 /usr/bin/python && ln -sf /usr/bin/pip3 /usr/bin/pip
+
 
 # Download Whisper model to cache
 RUN python -c "\
@@ -51,21 +58,17 @@ snapshot_download(repo_id=f'openai/whisper-{model_size}', \
 
 
 # Download FastText language ID model (use .bin version)
- # RUN wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin -O /app/lid.176.bin && \
+RUN wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin -O /app/lid.176.bin && \
     # Convert to .ftz format if needed (some versions work better with .bin)
-     # ln -s /app/lid.176.bin /app/lid.176.ftz
+    ln -s /app/lid.176.bin /app/lid.176.ftz
 
 
 # Pre-download nltk 'punkt' data
- RUN python -c "import nltk; nltk.download('punkt')"
+# RUN python -c "import nltk; nltk.download('punkt')"
 # Download ALL required NLTK data to a persistent location
- # RUN mkdir -p /usr/share/nltk_data && \
-     # python -c "import nltk; nltk.download('punkt', download_dir='/usr/share/nltk_data'); nltk.download('punkt_tab', download_dir='/usr/share/nltk_data')" && \
-     # python -c "import nltk; nltk.data.path.append('/usr/share/nltk_data')"
-
- RUN mkdir -p /usr/share/nltk_data && \
-    wget https://vividup.tech/app_models/nltk_data.tar.gz -O /tmp/nltk_data.tar.gz && \
-    tar -xzvf /tmp/nltk_data.tar.gz -C /usr/share
+RUN mkdir -p /usr/share/nltk_data && \
+    python -c "import nltk; nltk.download('punkt', download_dir='/usr/share/nltk_data'); nltk.download('punkt_tab', download_dir='/usr/share/nltk_data')" && \
+    python -c "import nltk; nltk.data.path.append('/usr/share/nltk_data')"
 
 # Preload EasyNMT model to cache it (optional, saves cold-start delay)
 RUN python -c "from easynmt import EasyNMT; EasyNMT('opus-mt')"
